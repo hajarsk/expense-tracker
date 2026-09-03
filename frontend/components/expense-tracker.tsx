@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import {
   createExpense,
   deleteExpense,
+  getExpenseSummary,
   getExpenses,
   updateExpense,
 } from '@/lib/expenses-api';
@@ -11,7 +12,10 @@ import {
   EXPENSE_CATEGORIES,
   type Expense,
   type ExpenseCategory,
+  type ExpenseFilters,
   type ExpenseInput,
+  type ExpenseSort,
+  type ExpenseSummary,
 } from '@/lib/expense';
 
 interface ExpenseFormState {
@@ -22,6 +26,32 @@ interface ExpenseFormState {
   paymentMethod: string;
   description: string;
 }
+
+interface ExpenseFilterState {
+  category: '' | ExpenseCategory;
+  startDate: string;
+  endDate: string;
+  sort: ExpenseSort;
+}
+
+const defaultFilters: ExpenseFilterState = {
+  category: '',
+  startDate: '',
+  endDate: '',
+  sort: 'newest',
+};
+
+const emptySummary: ExpenseSummary = {
+  totalSpending: '0.00',
+  expenseCount: 0,
+  averageExpense: '0.00',
+  byCategory: EXPENSE_CATEGORIES.map((category) => ({
+    category,
+    totalSpending: '0.00',
+    percentage: '0.0',
+  })),
+  byMonth: [],
+};
 
 function getEmptyForm(): ExpenseFormState {
   return {
@@ -40,6 +70,23 @@ function getLocalDateInputValue(date: Date) {
   const day = String(date.getDate()).padStart(2, '0');
 
   return `${year}-${month}-${day}`;
+}
+
+function getApiFilters(filters: ExpenseFilterState): ExpenseFilters {
+  const endDateExclusive = filters.endDate
+    ? new Date(`${filters.endDate}T00:00:00`)
+    : undefined;
+  endDateExclusive?.setDate(endDateExclusive.getDate() + 1);
+
+  return {
+    category: filters.category || undefined,
+    startDate: filters.startDate
+      ? new Date(`${filters.startDate}T00:00:00`).toISOString()
+      : undefined,
+    endDateExclusive: endDateExclusive?.toISOString(),
+    sort: filters.sort,
+    timezoneOffset: new Date().getTimezoneOffset(),
+  };
 }
 
 function isExpenseCategory(category: string): category is ExpenseCategory {
@@ -64,12 +111,24 @@ function formatDate(date: string) {
   }).format(new Date(date));
 }
 
+function formatMonth(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number);
+
+  return new Intl.DateTimeFormat('en-MY', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
+}
+
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong.';
 }
 
 export default function ExpenseTracker() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [summary, setSummary] = useState<ExpenseSummary>(emptySummary);
+  const [filters, setFilters] = useState<ExpenseFilterState>(defaultFilters);
   const [form, setForm] = useState<ExpenseFormState>(getEmptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -84,7 +143,14 @@ export default function ExpenseTracker() {
     setError(null);
 
     try {
-      setExpenses(await getExpenses());
+      const apiFilters = getApiFilters(filters);
+      const [loadedExpenses, loadedSummary] = await Promise.all([
+        getExpenses(apiFilters),
+        getExpenseSummary(apiFilters),
+      ]);
+
+      setExpenses(loadedExpenses);
+      setSummary(loadedSummary);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -94,10 +160,14 @@ export default function ExpenseTracker() {
 
   useEffect(() => {
     let ignore = false;
+    const apiFilters = getApiFilters(filters);
 
-    getExpenses()
-      .then((loadedExpenses) => {
-        if (!ignore) setExpenses(loadedExpenses);
+    Promise.all([getExpenses(apiFilters), getExpenseSummary(apiFilters)])
+      .then(([loadedExpenses, loadedSummary]) => {
+        if (!ignore) {
+          setExpenses(loadedExpenses);
+          setSummary(loadedSummary);
+        }
       })
       .catch((loadError: unknown) => {
         if (!ignore) setError(getErrorMessage(loadError));
@@ -109,7 +179,16 @@ export default function ExpenseTracker() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [filters]);
+
+  function updateFilter<K extends keyof ExpenseFilterState>(
+    field: K,
+    value: ExpenseFilterState[K],
+  ) {
+    setFilters((current) => ({ ...current, [field]: value }));
+    setIsLoading(true);
+    setError(null);
+  }
 
   function updateForm(field: keyof ExpenseFormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -156,20 +235,15 @@ export default function ExpenseTracker() {
 
     try {
       if (editingId !== null) {
-        const updated = await updateExpense(editingId, payload);
-        setExpenses((current) =>
-          current.map((expense) =>
-            expense.id === updated.id ? updated : expense,
-          ),
-        );
+        await updateExpense(editingId, payload);
         setSuccess('Expense updated successfully.');
       } else {
-        const created = await createExpense(payload);
-        setExpenses((current) => [created, ...current]);
+        await createExpense(payload);
         setSuccess('Expense added successfully.');
       }
 
       resetForm();
+      await loadExpenses();
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -190,11 +264,9 @@ export default function ExpenseTracker() {
 
     try {
       await deleteExpense(expense.id);
-      setExpenses((current) =>
-        current.filter((item) => item.id !== expense.id),
-      );
       if (editingId === expense.id) resetForm();
       setSuccess('Expense deleted successfully.');
+      await loadExpenses();
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
     } finally {
@@ -234,6 +306,27 @@ export default function ExpenseTracker() {
             {error ?? success}
           </div>
         )}
+
+        <section
+          aria-label="Filtered expense summary"
+          className="mb-8 grid gap-4 sm:grid-cols-3"
+        >
+          {[
+            ['Total spending', formatAmount(summary.totalSpending)],
+            ['Number of expenses', String(summary.expenseCount)],
+            ['Average expense', formatAmount(summary.averageExpense)],
+          ].map(([label, value]) => (
+            <div
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              key={label}
+            >
+              <p className="text-sm font-medium text-slate-500">{label}</p>
+              <p className="mt-2 text-2xl font-bold tabular-nums text-slate-950">
+                {isLoading ? '—' : value}
+              </p>
+            </div>
+          ))}
+        </section>
 
         <div className="grid gap-8 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] lg:items-start">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:sticky lg:top-6">
@@ -364,6 +457,100 @@ export default function ExpenseTracker() {
           </section>
 
           <section aria-labelledby="expense-list-heading">
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-bold text-slate-900">Filter and sort</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Summaries update with the selected expenses.
+                  </p>
+                </div>
+                <button
+                  className="text-sm font-semibold text-emerald-700 hover:text-emerald-900 disabled:cursor-not-allowed disabled:text-slate-300"
+                  disabled={
+                    filters.category === '' &&
+                    filters.startDate === '' &&
+                    filters.endDate === '' &&
+                    filters.sort === 'newest'
+                  }
+                  onClick={() => {
+                    setFilters(defaultFilters);
+                    setIsLoading(true);
+                    setError(null);
+                  }}
+                  type="button"
+                >
+                  Clear filters
+                </button>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <label className="text-sm font-semibold text-slate-700">
+                  Category
+                  <select
+                    className={fieldClassName}
+                    onChange={(event) =>
+                      updateFilter(
+                        'category',
+                        event.target.value as '' | ExpenseCategory,
+                      )
+                    }
+                    value={filters.category}
+                  >
+                    <option value="">All categories</option>
+                    {EXPENSE_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-semibold text-slate-700">
+                  From
+                  <input
+                    className={fieldClassName}
+                    max={filters.endDate || today}
+                    onChange={(event) =>
+                      updateFilter('startDate', event.target.value)
+                    }
+                    type="date"
+                    value={filters.startDate}
+                  />
+                </label>
+
+                <label className="text-sm font-semibold text-slate-700">
+                  To
+                  <input
+                    className={fieldClassName}
+                    max={today}
+                    min={filters.startDate || undefined}
+                    onChange={(event) =>
+                      updateFilter('endDate', event.target.value)
+                    }
+                    type="date"
+                    value={filters.endDate}
+                  />
+                </label>
+
+                <label className="text-sm font-semibold text-slate-700">
+                  Sort by
+                  <select
+                    className={fieldClassName}
+                    onChange={(event) =>
+                      updateFilter('sort', event.target.value as ExpenseSort)
+                    }
+                    value={filters.sort}
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="highest">Highest amount</option>
+                    <option value="lowest">Lowest amount</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-bold" id="expense-list-heading">
@@ -467,6 +654,67 @@ export default function ExpenseTracker() {
                 ))}
               </div>
             )}
+
+            <div className="mt-8 grid gap-6 xl:grid-cols-2">
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <h2 className="text-lg font-bold text-slate-900">
+                  Spending by category
+                </h2>
+                <div className="mt-5 divide-y divide-slate-100">
+                  {summary.byCategory.map((category) => (
+                    <div
+                      className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"
+                      key={category.category}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {category.category}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {category.percentage}% of total
+                        </p>
+                      </div>
+                      <p className="font-bold tabular-nums text-slate-950">
+                        {formatAmount(category.totalSpending)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <h2 className="text-lg font-bold text-slate-900">
+                  Monthly spending
+                </h2>
+                {summary.byMonth.length === 0 ? (
+                  <p className="mt-5 text-sm leading-6 text-slate-500">
+                    No monthly activity for the selected filters.
+                  </p>
+                ) : (
+                  <div className="mt-5 divide-y divide-slate-100">
+                    {summary.byMonth.map((month) => (
+                      <div
+                        className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"
+                        key={month.month}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">
+                            {formatMonth(month.month)}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {month.expenseCount}{' '}
+                            {month.expenseCount === 1 ? 'expense' : 'expenses'}
+                          </p>
+                        </div>
+                        <p className="font-bold tabular-nums text-slate-950">
+                          {formatAmount(month.totalSpending)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
           </section>
         </div>
       </div>

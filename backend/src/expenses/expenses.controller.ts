@@ -7,10 +7,12 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
+import { ExpenseQueryDto } from './dto/expense-query.dto';
 
 @Controller('expenses')
 export class ExpensesController {
@@ -22,8 +24,13 @@ export class ExpensesController {
   }
 
   @Get()
-  findAll() {
-    return this.expensesService.findAll();
+  findAll(@Query() query: ExpenseQueryDto) {
+    return this.expensesService.findAll(query);
+  }
+
+  @Get('summary')
+  getSummary(@Query() query: ExpenseQueryDto) {
+    return this.expensesService.getSummary(query);
   }
 
   @Get(':id')

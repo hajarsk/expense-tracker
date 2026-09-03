@@ -1,6 +1,8 @@
 import type {
   Expense,
+  ExpenseFilters,
   ExpenseInput,
+  ExpenseSummary,
   UpdateExpenseInput,
 } from '@/lib/expense';
 
@@ -10,6 +12,19 @@ const API_BASE_URL = (
 
 interface ApiErrorResponse {
   message?: string | string[];
+}
+
+function buildQueryString(filters: ExpenseFilters = {}) {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') {
+      searchParams.set(key, String(value));
+    }
+  });
+
+  const query = searchParams.toString();
+  return query ? `?${query}` : '';
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -33,8 +48,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function getExpenses(): Promise<Expense[]> {
-  return request<Expense[]>('/expenses');
+export function getExpenses(filters?: ExpenseFilters): Promise<Expense[]> {
+  return request<Expense[]>(`/expenses${buildQueryString(filters)}`);
+}
+
+export function getExpenseSummary(
+  filters?: ExpenseFilters,
+): Promise<ExpenseSummary> {
+  return request<ExpenseSummary>(
+    `/expenses/summary${buildQueryString(filters)}`,
+  );
 }
 
 export function createExpense(expense: ExpenseInput): Promise<Expense> {
