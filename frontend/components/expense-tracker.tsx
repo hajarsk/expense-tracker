@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import AnalyticsCharts from '@/components/analytics-charts';
 import {
   createExpense,
   deleteExpense,
@@ -109,16 +110,6 @@ function formatDate(date: string) {
     month: 'short',
     year: 'numeric',
   }).format(new Date(date));
-}
-
-function formatMonth(month: string) {
-  const [year, monthNumber] = month.split('-').map(Number);
-
-  return new Intl.DateTimeFormat('en-MY', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
 }
 
 function getErrorMessage(error: unknown) {
@@ -317,11 +308,11 @@ export default function ExpenseTracker() {
             ['Average expense', formatAmount(summary.averageExpense)],
           ].map(([label, value]) => (
             <div
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm first:border-emerald-200 first:bg-emerald-950 first:text-white"
               key={label}
             >
-              <p className="text-sm font-medium text-slate-500">{label}</p>
-              <p className="mt-2 text-2xl font-bold tabular-nums text-slate-950">
+              <p className="text-sm font-medium text-slate-500 first:text-inherit">{label}</p>
+              <p className="mt-2 text-2xl font-bold tabular-nums text-inherit">
                 {isLoading ? '—' : value}
               </p>
             </div>
@@ -457,7 +448,7 @@ export default function ExpenseTracker() {
           </section>
 
           <section aria-labelledby="expense-list-heading">
-            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="mb-4 flex items-center justify-between gap-4">
                 <div>
                   <h2 className="font-bold text-slate-900">Filter and sort</h2>
@@ -601,7 +592,7 @@ export default function ExpenseTracker() {
               <div className="space-y-3">
                 {expenses.map((expense) => (
                   <article
-                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 sm:p-6"
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md sm:p-6"
                     key={expense.id}
                   >
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -655,66 +646,7 @@ export default function ExpenseTracker() {
               </div>
             )}
 
-            <div className="mt-8 grid gap-6 xl:grid-cols-2">
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Spending by category
-                </h2>
-                <div className="mt-5 divide-y divide-slate-100">
-                  {summary.byCategory.map((category) => (
-                    <div
-                      className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"
-                      key={category.category}
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">
-                          {category.category}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {category.percentage}% of total
-                        </p>
-                      </div>
-                      <p className="font-bold tabular-nums text-slate-950">
-                        {formatAmount(category.totalSpending)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-                <h2 className="text-lg font-bold text-slate-900">
-                  Monthly spending
-                </h2>
-                {summary.byMonth.length === 0 ? (
-                  <p className="mt-5 text-sm leading-6 text-slate-500">
-                    No monthly activity for the selected filters.
-                  </p>
-                ) : (
-                  <div className="mt-5 divide-y divide-slate-100">
-                    {summary.byMonth.map((month) => (
-                      <div
-                        className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"
-                        key={month.month}
-                      >
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">
-                            {formatMonth(month.month)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {month.expenseCount}{' '}
-                            {month.expenseCount === 1 ? 'expense' : 'expenses'}
-                          </p>
-                        </div>
-                        <p className="font-bold tabular-nums text-slate-950">
-                          {formatAmount(month.totalSpending)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </div>
+            <AnalyticsCharts isLoading={isLoading} summary={summary} />
           </section>
         </div>
       </div>
