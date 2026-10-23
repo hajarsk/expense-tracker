@@ -1,0 +1,50 @@
+name: Reset demo data
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_reset:
+        description: Confirm that visitor-created demo records will be removed
+        required: true
+        type: boolean
+        default: false
+      database_confirmation:
+        description: Type the exact configured demo database name
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-production-database
+  cancel-in-progress: false
+
+jobs:
+  reset-demo:
+    if: github.ref == 'refs/heads/main' && inputs.confirm_reset == true
+    runs-on: ubuntu-latest
+    environment: demo-production
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DEMO_DATABASE_NAME: ${{ vars.DEMO_DATABASE_NAME }}
+      DEMO_DATABASE_HOST: ${{ vars.DEMO_DATABASE_HOST }}
+      DEMO_RESET_ROLE: ${{ vars.DEMO_RESET_ROLE }}
+      DEMO_RESET_CONFIRMATION: ${{ inputs.database_confirmation }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Reset visitor data and restore canonical samples
+        env:
+          DEMO_RESET_DATABASE_URL: ${{ secrets.DEMO_RESET_DATABASE_URL }}
+        run: npm run db:reset-demo

@@ -1,0 +1,75 @@
+name: Demo database migration and seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Database operation
+        required: true
+        type: choice
+        options:
+          - bootstrap
+          - migrate
+          - seed
+      confirm_empty_database:
+        description: Confirm the target is a new, empty demo database (required for bootstrap)
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-production-database
+  cancel-in-progress: false
+
+jobs:
+  database-operation:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: demo-production
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DEMO_DATABASE_NAME: ${{ vars.DEMO_DATABASE_NAME }}
+      DEMO_DATABASE_HOST: ${{ vars.DEMO_DATABASE_HOST }}
+      DEMO_MIGRATION_ROLE: ${{ vars.DEMO_MIGRATION_ROLE }}
+      OPERATION: ${{ inputs.operation }}
+      CONFIRM_EMPTY_DATABASE: ${{ inputs.confirm_empty_database }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Verify database identity and bootstrap emptiness
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          if [[ "$OPERATION" == "bootstrap" ]]; then
+            if [[ "$CONFIRM_EMPTY_DATABASE" != "true" ]]; then
+              echo "Bootstrap requires explicit empty-database confirmation."
+              exit 1
+            fi
+            npm run db:check-demo-db -- --require-empty
+          else
+            npm run db:check-demo-db
+          fi
+      - name: Apply reviewed migrations
+        if: inputs.operation == 'bootstrap' || inputs.operation == 'migrate'
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: npx prisma migrate deploy
+      - name: Seed canonical fictional samples
+        if: inputs.operation == 'bootstrap' || inputs.operation == 'seed'
+        env:
+          NODE_ENV: production
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: npx prisma db seed
