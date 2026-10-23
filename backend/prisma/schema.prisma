@@ -13,8 +13,16 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ExpenseOrigin {
+  DEMO
+  VISITOR
+  PRESERVE
+}
+
 model Expense {
-  id            Int      @id @default(autoincrement())
+  id            Int           @id @default(autoincrement())
+  origin        ExpenseOrigin @default(PRESERVE)
+  demoKey       String?       @unique
   merchant      String
   amount        Decimal  @db.Decimal(10, 2)
   category      String
