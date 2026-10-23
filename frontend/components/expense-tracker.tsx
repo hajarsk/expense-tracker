@@ -285,6 +285,10 @@ export default function ExpenseTracker() {
           </div>
         </header>
 
+        <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950" role="note">
+          Portfolio demo: use fictional sample information only. Expenses are shared with visitors and may be edited or deleted. Do not enter real personal or payment details.
+        </p>
+
         {(error || success) && (
           <div
             className={`mb-6 rounded-xl border px-4 py-3 text-sm ${
@@ -349,7 +353,8 @@ export default function ExpenseTracker() {
                 <input
                   className={fieldClassName}
                   onChange={(event) => updateForm('merchant', event.target.value)}
-                  placeholder="e.g. Village Grocer"
+                  maxLength={80}
+                  placeholder="e.g. Sample Market Birch"
                   required
                   type="text"
                   value={form.merchant}
@@ -428,6 +433,7 @@ export default function ExpenseTracker() {
                   onChange={(event) =>
                     updateForm('description', event.target.value)
                   }
+                  maxLength={240}
                   placeholder="Add a short note"
                   value={form.description}
                 />

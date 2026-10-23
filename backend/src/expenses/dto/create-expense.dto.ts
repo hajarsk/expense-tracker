@@ -9,12 +9,17 @@ import {
   IsString,
   Max,
   MaxDate,
+  MaxLength,
+  Validate,
 } from 'class-validator';
 import { ExpenseCategory } from '../enums/expense-category.enum';
+import { DemoSafeTextValidator } from '../validators/demo-safe-text.validator';
 
 export class CreateExpenseDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(80)
+  @Validate(DemoSafeTextValidator)
   merchant: string;
 
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -35,9 +40,13 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(40)
+  @Validate(DemoSafeTextValidator)
   paymentMethod?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(240)
+  @Validate(DemoSafeTextValidator)
   description?: string;
 }

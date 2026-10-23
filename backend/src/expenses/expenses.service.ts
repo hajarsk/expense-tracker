@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,24 +11,52 @@ import { ExpenseQueryDto } from './dto/expense-query.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExpenseCategory } from './enums/expense-category.enum';
 import { ExpenseSort } from './enums/expense-sort.enum';
+import { acquireDemoAdvisoryLock } from '../demo/demo-lock';
+
+const MAX_DEMO_EXPENSES = 500;
+
+function toPublicExpense<T extends { origin: string; demoKey: string | null }>(
+  expense: T,
+) {
+  const { origin, demoKey, ...publicFields } = expense;
+  void origin;
+  void demoKey;
+  return publicFields;
+}
 
 @Injectable()
 export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(createExpenseDto: CreateExpenseDto) {
-    return this.prisma.expense.create({
-      data: {
-        ...createExpenseDto,
-      },
+  async create(createExpenseDto: CreateExpenseDto) {
+    return this.prisma.$transaction(async (transaction) => {
+      await acquireDemoAdvisoryLock(transaction);
+
+      const count = await transaction.expense.count({
+        where: { origin: { in: ['DEMO', 'VISITOR'] } },
+      });
+      if (count >= MAX_DEMO_EXPENSES) {
+        throw new ConflictException(
+          'The shared demo has reached its 500 expense limit. Delete an expense or restore the demo later.',
+        );
+      }
+
+      const expense = await transaction.expense.create({
+        data: {
+          ...createExpenseDto,
+          origin: 'VISITOR',
+        },
+      });
+      return toPublicExpense(expense);
     });
   }
 
-  findAll(query: ExpenseQueryDto) {
-    return this.prisma.expense.findMany({
+  async findAll(query: ExpenseQueryDto) {
+    const expenses = await this.prisma.expense.findMany({
       where: this.buildWhere(query),
       orderBy: this.buildOrderBy(query.sort),
     });
+    return expenses.map(toPublicExpense);
   }
 
   async getSummary(query: ExpenseQueryDto) {
@@ -121,25 +150,41 @@ export class ExpensesService {
       throw new NotFoundException(`Expense with ID ${id} not found`);
     }
 
-    return expense;
+    return toPublicExpense(expense);
   }
 
   async update(id: number, updateExpenseDto: UpdateExpenseDto) {
-    await this.findOne(id);
+    return this.prisma.$transaction(async (transaction) => {
+      await acquireDemoAdvisoryLock(transaction);
 
-    return this.prisma.expense.update({
-      where: { id },
-      data: {
-        ...updateExpenseDto,
-      },
+      const existingExpense = await transaction.expense.findUnique({
+        where: { id },
+      });
+      if (!existingExpense) {
+        throw new NotFoundException(`Expense with ID ${id} not found`);
+      }
+
+      const expense = await transaction.expense.update({
+        where: { id },
+        data: { ...updateExpenseDto },
+      });
+      return toPublicExpense(expense);
     });
   }
 
   async remove(id: number) {
-    await this.findOne(id);
+    return this.prisma.$transaction(async (transaction) => {
+      await acquireDemoAdvisoryLock(transaction);
 
-    return this.prisma.expense.delete({
-      where: { id },
+      const existingExpense = await transaction.expense.findUnique({
+        where: { id },
+      });
+      if (!existingExpense) {
+        throw new NotFoundException(`Expense with ID ${id} not found`);
+      }
+
+      const expense = await transaction.expense.delete({ where: { id } });
+      return toPublicExpense(expense);
     });
   }
 
